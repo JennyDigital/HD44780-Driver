@@ -373,8 +373,7 @@ void LCD_Printf( char * string )
 {
   while( ( *string ) != 0)
   {
-    if( *string ) LCD_Putchar( *string );
-    string++;
+    LCD_Putchar( *string++ );
   }
 }
 
