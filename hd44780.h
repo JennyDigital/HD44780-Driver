@@ -134,6 +134,12 @@
   */
 // #define LCD_LITE
 
+
+/** Set this define to make \n also do a \r
+  *
+  */
+  #define HD_NL_DOES_CR
+
 /** =================================
   * End of user configurable section
   * =================================

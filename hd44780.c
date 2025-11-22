@@ -19,8 +19,12 @@
     USA
 */
 
+#include "hw_interface.h"
 #include "hd44780.h"
-#include <stdio.h>
+
+#ifdef __CROSSWORKS_ARM
+	#include <stdio.h>
+#endif
 
 /** Different platforms require different delay solutions, so
   * so below is a macro to substitute your own,
@@ -411,6 +415,14 @@ char LCD_Putchar( char ch )
     case '\n':
     {
       hd_ypos++;
+#ifdef HD_NL_DOES_CR
+      hd_xpos = 0;
+#endif
+      if( hd_ypos > YMAX )
+      {
+        LCD_ScrollUp();
+        hd_ypos = YMAX;
+      }
       LCD_Command( SET_DDRAM_ADD | LCD_DDRAM_Addr( hd_xpos, hd_ypos ) );
       break;
     }
