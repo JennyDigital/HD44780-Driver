@@ -20,9 +20,12 @@
 */
 
 
-#ifndef HD44780_H
-#define HD44780_H
+#ifndef _HD44780_H
+#define _HD44780_H
+#include <gd32f10x.h>
 #include <stdio.h>
+//#include "hw_interface_stm32.h"
+#include "hw_interface_gd32.h"
 
 /** ----------------------------------------------------------+ 
   * User configuration section.                               !
@@ -57,15 +60,15 @@
 
 // These pins are always used.
 //
-#define LCD_D7        HD_D7_Pin
-#define LCD_D6        HD_D6_Pin
-#define LCD_D5        HD_D5_Pin
-#define LCD_D4        HD_D4_Pin
+#define LCD_D7        GPIO_PIN_9
+#define LCD_D6        GPIO_PIN_8
+#define LCD_D5        GPIO_PIN_7
+#define LCD_D4        GPIO_PIN_6
 
-#define LCD_D7_BANK    HD_D7_GPIO_Port
-#define LCD_D6_BANK    HD_D6_GPIO_Port
-#define LCD_D5_BANK    HD_D5_GPIO_Port
-#define LCD_D4_BANK    HD_D4_GPIO_Port
+#define LCD_D7_BANK    GPIOB
+#define LCD_D6_BANK    GPIOB
+#define LCD_D5_BANK    GPIOB
+#define LCD_D4_BANK    GPIOB
 
 // These pins are only used for 8-bit mode.
 //
@@ -88,14 +91,14 @@
   *
   * These also must be defined
   */
-#define LCD_RS        HD_RS_Pin  
-#define LCD_RS_BANK   HD_RS_GPIO_Port
+#define LCD_RS        GPIO_PIN_5  
+#define LCD_RS_BANK   GPIOB
 
-#define LCD_RNW       HD_RNW_Pin
-#define LCD_RNW_BANK  HD_RNW_GPIO_Port
+#define LCD_RNW       GPIO_PIN_0
+#define LCD_RNW_BANK  GPIOB
 
-#define LCD_E         HD_E_Pin
-#define LCD_E_BANK    HD_E_GPIO_Port
+#define LCD_E         GPIO_PIN_3
+#define LCD_E_BANK    GPIOB
 
 /** LCD Timing
   * 
@@ -215,17 +218,6 @@
 #endif
 
 
-/** Choose from VFD25 VFD50 VFD75 and VFD100
-  *
-  * Brightness will vary from 25% to 100%
-  */
-#ifdef HD_ISVFD
-
-char vfd_intensity = VFD100;
-
-#endif
-
-
 /** Panel Mapping. Refer to your LCDs Datasheet!
   *
   * Different panels have their own special
@@ -290,11 +282,11 @@ char vfd_intensity = VFD100;
 #define XMAX      15
 #define HD_ADDR_MAP { 0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7,\
                       0x8, 0x9, 0xA, 0xB, 0xC, 0xD, 0xE, 0xF,\
-                      0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47\
-                      0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F\
-                      0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17\
-                      0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F\
-                      0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57\
+                      0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47,\
+                      0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F,\
+                      0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,\
+                      0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F,\
+                      0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57,\
                       0x58, 0x59, 0x5A, 0x5B, 0x5C, 0x5D, 0x5E, 0x5F }
 #define NUMLINES  TWOLINES
 
@@ -413,4 +405,4 @@ void LCD_Defchar      ( char ChToSet, uint8_t * ChDataset );
   void LCD_VFD_Intensity( char intensity );
 #endif
 
-#endif
+#endif // _HD44780_H

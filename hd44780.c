@@ -19,7 +19,8 @@
     USA
 */
 
-#include "hw_interface.h"
+//#include "hw_interface_stm32.h"
+#include "hw_interface_gd32.h"
 #include "hd44780.h"
 
 #ifdef __CROSSWORKS_ARM
@@ -29,7 +30,13 @@
 /** Different platforms require different delay solutions, so
   * so below is a macro to substitute your own,
   */
+#ifdef _HW_INTERFACE_GD32_H
+#define Delay_ms( ms_delay ) delay_millis( ms_delay )
+#endif
+
+#ifdef _HW_INTERFACE_STM32_H
 #define Delay_ms( ms_delay ) HAL_Delay( ms_delay )
+#endif
 
 
 /** HD44780 system variables
@@ -39,6 +46,16 @@ int hd_xpos = 0 , hd_ypos = 0;
 int dd_addr;
 const char hd_map[] = HD_ADDR_MAP;
 char no_wait = 1;
+
+/** VFD has four different intensities VFD25 VFD50 VFD75 and VFD100
+  *
+  * Brightness will vary from 25% to 100%
+  */
+#ifdef HD_ISVFD
+
+char vfd_intensity = VFD100;
+
+#endif
 
  
 // HACK: Time wasting routine.  It was being optimised away until it's parameters were declared
