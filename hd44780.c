@@ -118,10 +118,10 @@ char LCD_Input( void )
 
 #ifdef LCD_BUS8BIT
   ch <<= 1;
-  ch |= LCD_D4( LCD_D3, LCD_D3_BANK ); ch <<= 1;
-  ch |= LCD_D4( LCD_D2, LCD_D2_BANK ); ch <<= 1;
-  ch |= LCD_D4( LCD_D1, LCD_D1_BANK ); ch <<= 1;
-  ch |= LCD_D4( LCD_D0, LCD_D0_BANK );
+  ch |= Read_Pin( LCD_D3, LCD_D3_BANK ); ch <<= 1;
+  ch |= Read_Pin( LCD_D2, LCD_D2_BANK ); ch <<= 1;
+  ch |= Read_Pin( LCD_D1, LCD_D1_BANK ); ch <<= 1;
+  ch |= Read_Pin( LCD_D0, LCD_D0_BANK );
 #endif
 
   return ch;
