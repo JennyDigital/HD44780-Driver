@@ -463,7 +463,7 @@ char LCD_Putchar( char ch )
   {
     hd_xpos = 0;
     hd_ypos++;
-    LCD_Command( SET_DDRAM_ADD | dd_addr );
+    LCD_Command( SET_DDRAM_ADD | LCD_DDRAM_Addr( hd_xpos, hd_ypos ) );
   }
   return ch;
 }
