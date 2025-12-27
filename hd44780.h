@@ -22,10 +22,9 @@
 
 #ifndef _HD44780_H
 #define _HD44780_H
-#include <gd32f10x.h>
-#include <stdio.h>
-//#include "hw_interface_stm32.h"
-#include "hw_interface_gd32.h"
+#include "stdio.h"
+#include <stdint.h>
+#include "main.h"
 
 /** ----------------------------------------------------------+ 
   * User configuration section.                               !
@@ -58,17 +57,19 @@
 #endif
 
 
+#define _HW_INTERFACE_STM32_H
+
 // These pins are always used.
 //
-#define LCD_D7        GPIO_PIN_9
-#define LCD_D6        GPIO_PIN_8
-#define LCD_D5        GPIO_PIN_7
-#define LCD_D4        GPIO_PIN_6
+#define LCD_D7        HD_D7_Pin
+#define LCD_D6        HD_D6_Pin
+#define LCD_D5        HD_D5_Pin
+#define LCD_D4        HD_D4_Pin
 
-#define LCD_D7_BANK    GPIOB
-#define LCD_D6_BANK    GPIOB
-#define LCD_D5_BANK    GPIOB
-#define LCD_D4_BANK    GPIOB
+#define LCD_D7_BANK    HD_D7_GPIO_Port
+#define LCD_D6_BANK    HD_D6_GPIO_Port
+#define LCD_D5_BANK    HD_D5_GPIO_Port
+#define LCD_D4_BANK    HD_D4_GPIO_Port
 
 // These pins are only used for 8-bit mode.
 //
@@ -91,14 +92,14 @@
   *
   * These also must be defined
   */
-#define LCD_RS        GPIO_PIN_5  
-#define LCD_RS_BANK   GPIOB
+#define LCD_RS        HD_RS_Pin  
+#define LCD_RS_BANK   HD_RS_GPIO_Port
 
-#define LCD_RNW       GPIO_PIN_0
-#define LCD_RNW_BANK  GPIOB
+#define LCD_RNW       HD_RNW_Pin
+#define LCD_RNW_BANK  HD_RNW_GPIO_Port
 
-#define LCD_E         GPIO_PIN_3
-#define LCD_E_BANK    GPIOB
+#define LCD_E         HD_E_Pin
+#define LCD_E_BANK    HD_E_GPIO_Port
 
 /** LCD Timing
   * 
@@ -141,7 +142,12 @@
 /** Set this define to make \n also do a \r
   *
   */
-  #define HD_NL_DOES_CR
+  //#define HD_NL_DOES_CR
+
+/** Do you want scrolling or wrap to beginning?
+  *
+  */
+  #define LCD_SCROLL_SUPPORT
 
 /** =================================
   * End of user configurable section
@@ -155,7 +161,6 @@
 #ifndef LCD_LITE
   #define LCD_UDG_SUPPORT
   #define LCD_READCHAR_SUPPORT
-  #define LCD_SCROLL_SUPPORT
   #define LCD_READ_DD_SUPPORT
 #endif
 
@@ -339,7 +344,7 @@
 #endif
 
 
-/** Function Declarations
+/** Function Declarations of use to the application.
   *
   * Porting this driver to other platforms will require
   * that the hardware functions be modified.
@@ -347,62 +352,54 @@
   * your compiler as this was written in CCS C.
   */
 
-  
-// Hardware Abstraction Layer Functions
-//
-void LCD_SetRS        ( char state );
-void LCD_SetRNW       ( char state );
-void LCD_SetE         ( char state );
-void LCD_SetBusInput  ( void );
-char LCD_Input        ( void );
-void LCD_Output       ( char ch );
-char LCD_IsBusy       ( void );
 
 // System Control
 //
-void LCD_Command      ( char cmd );
-void LCD_BusyWait     ( void );
-void LCD_Init         ( void );
-void LCD_Locate       ( char x, char y );
-void LCD_Cursor       ( char cursor_state );
+              void LCD_Init         ( void );
+              void LCD_Locate       ( uint8_t x, uint8_t y );
+              void LCD_Cursor       ( uint8_t cursor_state );
 
 #ifdef __CROSSWORKS_ARM
 int __putchar(int ch, __printf_tag_ptr ptr);
 #endif
 
+#if defined(__GNUC__) && !defined(__CROSSWORKS_ARM)
+#define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
+#endif
+
 // HACK: Further iffy bit, also covering CCS C's inbuilt functions
 //       but not accurate.  Its just to get things working.
 //
-void delay_cycles( char cycles_to_waste );
+void delay_cycles         ( uint8_t cycles_to_waste );
 
 // IO Functions.
 //
-char LCD_Read_DDRAM   ( char dd_read_addr );
-void LCD_PutData      ( char dat );
-char LCD_DDRAM_Addr   ( char dd_x, char dd_y );
-char LCD_Putchar      ( char ch );
+uint8_t LCD_Read_DDRAM    ( uint8_t dd_read_addr );
+void LCD_PutData          ( uint8_t dat );
+uint8_t LCD_DDRAM_Addr    ( uint8_t dd_x, uint8_t dd_y );
+uint8_t LCD_Putchar       ( uint8_t ch );
 
 #ifdef LCD_READCHAR_SUPPORT
-char LCD_Readchar     ( char rc_x, char rc_y );
+uint8_t LCD_Readchar      ( uint8_t rc_x, uint8_t rc_y );
 #endif
 
-#ifndef __CROSSWORKS_ARM
-void LCD_Printf       ( char * string );
+#if !defined(__CROSSWORKS_ARM) || !defined(__GNUC__)
+void LCD_Printf           ( uint8_t * string );
 #endif
-void LCD_Clear        ( void );
+void LCD_Clear            ( void );
 
 #ifdef LCD_UDG_SUPPORT
-void LCD_Defchar      ( char ChToSet, uint8_t * ChDataset );
+void LCD_Defchar          ( uint8_t ChToSet, uint8_t * ChDataset );
 #endif
 
 #ifdef LCD_SCROLL_SUPPORT
-  void LCD_ScrollUp   ( void );
+void LCD_ScrollUp         ( void );
 #endif
 
 // VFD Specific function for display intensity.
 //
 #ifdef HD_ISVFD
-  void LCD_VFD_Intensity( char intensity );
+void LCD_VFD_Intensity    ( char intensity );
 #endif
 
 #endif // _HD44780_H

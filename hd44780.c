@@ -19,13 +19,26 @@
     USA
 */
 
-//#include "hw_interface_stm32.h"
-#include "hw_interface_gd32.h"
+//#include "main.h"
+#include "stdio.h"
+#include "hardware.h"
 #include "hd44780.h"
 
-#ifdef __CROSSWORKS_ARM
-	#include <stdio.h>
-#endif
+
+// Private System Control function prototypes.
+//
+static inline void LCD_Command      ( uint8_t cmd );
+static inline void LCD_BusyWait     ( void );
+
+// Hardware Abstraction Layer Functions
+//
+static inline void LCD_SetRS        ( uint8_t state );
+static inline void LCD_SetRNW       ( uint8_t state );
+static inline void LCD_SetE         ( uint8_t state );
+static inline void LCD_SetBusInput  ( void );
+static inline uint8_t LCD_Input        ( void );
+static inline void LCD_Output       ( uint8_t ch );
+static inline uint8_t LCD_IsBusy       ( void );
 
 /** Different platforms require different delay solutions, so
   * so below is a macro to substitute your own,
@@ -42,10 +55,10 @@
 /** HD44780 system variables
   *
   */
-int hd_xpos = 0 , hd_ypos = 0;
-int dd_addr;
-const char hd_map[] = HD_ADDR_MAP;
-char no_wait = 1;
+static int hd_xpos = 0 , hd_ypos = 0;
+static uint8_t dd_addr;
+static const uint8_t hd_map[] = HD_ADDR_MAP;
+
 
 /** VFD has four different intensities VFD25 VFD50 VFD75 and VFD100
   *
@@ -62,34 +75,34 @@ char vfd_intensity = VFD100;
 // volatile.  This comes from use in CCS C which has this as a built-in, but they mean machine
 // cycles.
 //
-void delay_cycles( volatile char cycles_to_waste )
+void delay_cycles( volatile uint8_t cycles_to_waste )
 {
   while( cycles_to_waste-- );
 }
 
 
-void LCD_SetRS(char state)
+static inline void LCD_SetRS(uint8_t state)
 {
   Output_Pin( LCD_RS, LCD_RS_BANK, state );
   delay_cycles( E_CYCLES );
 }
 
 
-void LCD_SetRNW(char state)
+static inline void LCD_SetRNW(uint8_t state)
 {
   Output_Pin( LCD_RNW, LCD_RNW_BANK, state );
   delay_cycles( E_CYCLES );
 }
 
 
-void LCD_SetE( char state )
+static inline void LCD_SetE( uint8_t state )
 {
   Output_Pin( LCD_E, LCD_E_BANK, state );
   delay_cycles( E_CYCLES );
 }
 
 
-void LCD_SetBusInput( void )
+static inline void LCD_SetBusInput( void )
 {
   Set_Input_Pin( LCD_D7, LCD_D7_BANK );
   Set_Input_Pin( LCD_D6, LCD_D6_BANK );
@@ -105,9 +118,9 @@ void LCD_SetBusInput( void )
 }
 
 
-char LCD_Input( void )
+static inline uint8_t LCD_Input( void )
 {
-  char ch;
+  uint8_t ch;
 
   LCD_SetBusInput();
 
@@ -131,7 +144,7 @@ char LCD_Input( void )
 // LCD Bus output function.  4 or 8-bit output capable, with no
 // port dependencies to make PCB layout sweet.
 //
-void LCD_Output( char ch )
+static inline void LCD_Output( uint8_t ch )
 {
 
     Output_Pin( LCD_D7, LCD_D7_BANK, ch & 0x80 );
@@ -149,9 +162,9 @@ void LCD_Output( char ch )
 
 // Checks for the LCD busy bit status and returns it.
 //
-char LCD_IsBusy( void )
+static inline uint8_t LCD_IsBusy( void )
 {
-  char busybit;
+  uint8_t busybit;
 
   LCD_SetBusInput();
   LCD_SetRS( INSTR_REG );
@@ -180,11 +193,11 @@ char LCD_IsBusy( void )
 /** Read Display Data RAM
   *
   * Reads the display data referenced in the passed parameter
-  * and returns it as a char.
+  * and returns it as a uint8_t.
   */
-char LCD_Read_DDRAM( char dd_read_addr )
+uint8_t LCD_Read_DDRAM( uint8_t dd_read_addr )
 {
-  char dd_data;
+  uint8_t dd_data;
 
   LCD_Command( SET_DDRAM_ADD | dd_read_addr );
   LCD_BusyWait();
@@ -217,7 +230,7 @@ char LCD_Read_DDRAM( char dd_read_addr )
 /** Read character at the display coordinates specified, with
   * the upper left cell being 0,0.
   */
-char LCD_Readchar( char rc_x, char rc_y )
+uint8_t LCD_Readchar( uint8_t rc_x, uint8_t rc_y )
 {
   int addr_to_sample;
 
@@ -231,7 +244,7 @@ char LCD_Readchar( char rc_x, char rc_y )
 
 // Writes a command to the LCD.
 //
-void LCD_Command( char cmd )
+static inline void LCD_Command( uint8_t cmd )
 {
   LCD_SetRS( INSTR_REG );
   LCD_SetRNW( WRITE );
@@ -259,7 +272,7 @@ void LCD_Command( char cmd )
 }
 
 
-void LCD_BusyWait( void )
+static inline void LCD_BusyWait( void )
 {
   while( LCD_IsBusy() );
 }
@@ -272,9 +285,9 @@ void LCD_BusyWait( void )
 //
 #ifdef LCD_UDG_SUPPORT
 
-void LCD_Defchar( char ChToSet, uint8_t * ChDataset )
+void LCD_Defchar( uint8_t ChToSet, uint8_t * ChDataset )
 {
-  int ChAddress,
+  uint16_t ChAddress,
       ch_line,
       defchar_dd_addr;
    
@@ -317,10 +330,9 @@ void LCD_Defchar( char ChToSet, uint8_t * ChDataset )
 
 // Function to allow arbitrary placement of text on the display.
 //
-void LCD_Locate(char x, char y)
+void LCD_Locate( uint8_t x, uint8_t y )
 {
-  int addr;
-  addr = LCD_DDRAM_Addr( x, y );
+  uint8_t addr = LCD_DDRAM_Addr( x, y );
   hd_xpos = x; hd_ypos = y;
   
   LCD_Command( SET_DDRAM_ADD | addr );
@@ -329,7 +341,7 @@ void LCD_Locate(char x, char y)
 
 // Function to write data to the LCD
 //
-void LCD_PutData( char dat )
+void LCD_PutData( uint8_t dat )
 {
     LCD_BusyWait();
     LCD_SetRS( DATA_REG );
@@ -363,7 +375,7 @@ void LCD_PutData( char dat )
 
 void LCD_ScrollUp( void )
 {
-  char  line_pos,
+  uint8_t  line_pos,
         line,
         ch_moving,
         new_addr;
@@ -398,9 +410,13 @@ void LCD_ScrollUp( void )
 #endif
 
 
-char LCD_DDRAM_Addr( char dd_x, char dd_y )
+uint8_t LCD_DDRAM_Addr( uint8_t dd_x, uint8_t dd_y )
 {  
-  return ( hd_map[ dd_x + ( XMAX + 1 ) *  dd_y ] );
+  /* Clamp coordinates to valid range to avoid indexing hd_map out-of-bounds. */
+  if( dd_x > XMAX ) dd_x = XMAX;
+  if( dd_y > YMAX ) dd_y = YMAX;
+
+  return ( hd_map[ dd_x + ( XMAX + 1 ) * dd_y ] );
 }
 
 
@@ -411,8 +427,14 @@ char LCD_DDRAM_Addr( char dd_x, char dd_y )
 //
 #define LCD_Putc( ch_to_put ) LCD_Putchar( ch_to_put );
 
-char LCD_Putchar( char ch )
+uint8_t LCD_Putchar( uint8_t ch )
 {
+  if( hd_xpos > XMAX )
+  {
+    hd_xpos = 0;
+    hd_ypos++;
+  }
+
   if( hd_ypos > YMAX )
 #ifdef LCD_SCROLL_SUPPORT
     {
@@ -430,19 +452,24 @@ char LCD_Putchar( char ch )
   switch( ch )
   {
     case '\n':
-    {
       hd_ypos++;
 #ifdef HD_NL_DOES_CR
       hd_xpos = 0;
 #endif
       if( hd_ypos > YMAX )
+#ifdef LCD_SCROLL_SUPPORT
       {
         LCD_ScrollUp();
         hd_ypos = YMAX;
       }
+#else
+      {
+        hd_xpos=0;
+        hd_ypos=0;
+      }
+#endif
       LCD_Command( SET_DDRAM_ADD | LCD_DDRAM_Addr( hd_xpos, hd_ypos ) );
       break;
-    }
 
     case '\r':
       {
@@ -452,17 +479,24 @@ char LCD_Putchar( char ch )
       }
 
     default:
-    {
       LCD_Command( SET_DDRAM_ADD | dd_addr );
       LCD_PutData( ch );
       hd_xpos++;
-    }
-  }
 
-  if( hd_xpos > XMAX )
-  {
-    hd_xpos = 0;
-    hd_ypos++;
+#ifdef LCD_SCROLL_SUPPORT
+    if( hd_ypos > YMAX )
+    {
+      LCD_ScrollUp();
+      hd_ypos = YMAX;
+    }
+#else
+    if( hd_ypos > YMAX )
+    {
+      /* Wrap to top if scrolling is not supported */
+      hd_ypos = 0;
+    }
+#endif
+
     LCD_Command( SET_DDRAM_ADD | LCD_DDRAM_Addr( hd_xpos, hd_ypos ) );
   }
   return ch;
@@ -476,21 +510,17 @@ int __putchar(int ch, __printf_tag_ptr ptr)
 }
 #endif
 
+#if defined(__GNUC__) && !defined(__CROSSWORKS_ARM)
 
-#ifndef __CROSSWORKS_ARM
-// A very primitive and lightweight printf implementation.
-// ...good enough for now.
-//
-void LCD_Printf( char * string )
+PUTCHAR_PROTOTYPE
 {
-  while( ( *string ) != 0)
-  {
-    LCD_Putchar( *string++ );
-  }
+  LCD_Putchar( ch );
+  return ch;
 }
 #endif
 
 
+// Clears the display and returns the cursor to home position.
 void LCD_Clear(void)
 {
   LCD_BusyWait();
@@ -502,7 +532,7 @@ void LCD_Clear(void)
 
 // Turns the cursor off or on.
 //
-void LCD_Cursor( char cursor_state )
+void LCD_Cursor( uint8_t cursor_state )
 {
   LCD_Command( 
               DISP_CTRL | DISP | ( cursor_state ? BLINK : 0 )
@@ -516,6 +546,12 @@ void LCD_Cursor( char cursor_state )
 //
 void LCD_Init(void)
 {
+  /*Stops buffering which breaks this driver outright */
+  #ifdef __GNUC__
+  setvbuf(stdout, NULL, _IONBF, 0); // No Buffering
+  #endif
+
+  /*Initialise the LCD */
   LCD_Input();
   LCD_SetE(DISABLE);
   LCD_SetRS(INSTR_REG);
