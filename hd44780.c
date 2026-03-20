@@ -55,9 +55,10 @@ static inline uint8_t LCD_IsBusy       ( void );
 /** HD44780 system variables
   *
   */
-static int hd_xpos = 0 , hd_ypos = 0;
-static uint8_t dd_addr;
-static const uint8_t hd_map[] = HD_ADDR_MAP;
+static          uint8_t   hd_xpos   = 0,
+                          hd_ypos   = 0;
+static          uint8_t   dd_addr;
+static const    uint8_t   hd_map[]  = HD_ADDR_MAP;
 
 
 /** VFD has four different intensities VFD25 VFD50 VFD75 and VFD100
@@ -81,6 +82,11 @@ void delay_cycles( volatile uint8_t cycles_to_waste )
 }
 
 
+/** Set the RS pin state
+  *
+  * @param state: 1 = Data Register, 0 = Instruction Register
+  * @retval none
+  */
 static inline void LCD_SetRS(uint8_t state)
 {
   Output_Pin( LCD_RS, LCD_RS_BANK, state );
@@ -88,6 +94,11 @@ static inline void LCD_SetRS(uint8_t state)
 }
 
 
+/** Set the Read/Write pin state
+  *
+  * @param state: 1 = Read, 0 = Write
+  * @retval none
+  */
 static inline void LCD_SetRNW(uint8_t state)
 {
   Output_Pin( LCD_RNW, LCD_RNW_BANK, state );
@@ -95,6 +106,11 @@ static inline void LCD_SetRNW(uint8_t state)
 }
 
 
+/** Set the Enable pin state
+  *
+  * @param state: 1 = Enable, 0 = Disable
+  * @retval none
+  */
 static inline void LCD_SetE( uint8_t state )
 {
   Output_Pin( LCD_E, LCD_E_BANK, state );
@@ -102,6 +118,11 @@ static inline void LCD_SetE( uint8_t state )
 }
 
 
+/* Set the LCD bus to input mode 
+ *
+ * @param none
+ * @retval none
+ */
 static inline void LCD_SetBusInput( void )
 {
   Set_Input_Pin( LCD_D7, LCD_D7_BANK );
@@ -118,6 +139,11 @@ static inline void LCD_SetBusInput( void )
 }
 
 
+/** Read the LCD bus input  
+  *
+  * @param none
+  * @retval byte read from the LCD bus
+  */
 static inline uint8_t LCD_Input( void )
 {
   uint8_t ch;
@@ -141,42 +167,52 @@ static inline uint8_t LCD_Input( void )
 }
 
 
-// LCD Bus output function.  4 or 8-bit output capable, with no
-// port dependencies to make PCB layout sweet.
-//
+/* Output to LCD bus
+ * @param ch: byte to output to the LCD bus
+ *
+ * @retval none
+ */
 static inline void LCD_Output( uint8_t ch )
 {
-
-    Output_Pin( LCD_D7, LCD_D7_BANK, ch & 0x80 );
-    Output_Pin( LCD_D6, LCD_D6_BANK, ch & 0x40 );
-    Output_Pin( LCD_D5, LCD_D5_BANK, ch & 0x20 );
-    Output_Pin( LCD_D4, LCD_D4_BANK, ch & 0x10 );
+  /* These lines are always set */
+  Output_Pin( LCD_D7, LCD_D7_BANK, ch & 0x80 );
+  Output_Pin( LCD_D6, LCD_D6_BANK, ch & 0x40 );
+  Output_Pin( LCD_D5, LCD_D5_BANK, ch & 0x20 );
+  Output_Pin( LCD_D4, LCD_D4_BANK, ch & 0x10 );
 #ifdef LCD_BUS8BIT
-    Output_Pin( LCD_D3, LCD_D3_BANK, ch & 0x8 );
-    Output_Pin( LCD_D2, LCD_D2_BANK, ch & 0x4 );
-    Output_Pin( LCD_D1, LCD_D1_BANK, ch & 0x2 );
-    Output_Pin( LCD_D0, LCD_D0_BANK, ch & 0x1 );
+  /* These lines are only for 8-bit mode */
+  Output_Pin( LCD_D3, LCD_D3_BANK, ch & 0x8 );
+  Output_Pin( LCD_D2, LCD_D2_BANK, ch & 0x4 );
+  Output_Pin( LCD_D1, LCD_D1_BANK, ch & 0x2 );
+  Output_Pin( LCD_D0, LCD_D0_BANK, ch & 0x1 );
 #endif
 }
 
 
-// Checks for the LCD busy bit status and returns it.
-//
+/** Read the busy flag from the LCD
+  *
+  * @param none
+  * @retval uint8_t: busy flag state
+  */
 static inline uint8_t LCD_IsBusy( void )
 {
   uint8_t busybit;
 
+  /* Prep LCD for busy flag read */
   LCD_SetBusInput();
   LCD_SetRS( INSTR_REG );
   LCD_SetRNW( READ );
   LCD_SetE( ENABLE );
   delay_cycles( E_CYCLES );
 
+  /* Read busy flag */
   busybit = Read_Pin( LCD_D7, LCD_D7_BANK );
 
+  /* Turn off the Enable pin */
   LCD_SetE( DISABLE );
   delay_cycles( E_CYCLES );
 
+  /* Do it again for 4-bit mode, ignoring the result */
 #ifndef LCD_BUS8BIT
   LCD_SetE( ENABLE );
   delay_cycles( E_CYCLES );
@@ -190,27 +226,35 @@ static inline uint8_t LCD_IsBusy( void )
 
 
 #ifdef LCD_READ_DD_SUPPORT
-/** Read Display Data RAM
+
+/** Read Display Data RAM at the specified address
   *
-  * Reads the display data referenced in the passed parameter
-  * and returns it as a uint8_t.
+  * @param dd_read_addr: address to read from
+  * @retval uint8_t: data read from DDRAM
   */
 uint8_t LCD_Read_DDRAM( uint8_t dd_read_addr )
 {
   uint8_t dd_data;
 
+  /* Set DDRAM address to read from */
   LCD_Command( SET_DDRAM_ADD | dd_read_addr );
   LCD_BusyWait();
   LCD_SetRS( DATA_REG );
   LCD_SetRNW( READ );
 
+  /* Prepare LCD for data read */
   delay_cycles( E_CYCLES );
   LCD_SetE( ENABLE );
   delay_cycles( E_CYCLES );
+
+  /* Read data */
   dd_data = LCD_Input();
+
+  /* Turn off Enable pin */
   LCD_SetE( DISABLE );
   delay_cycles( E_CYCLES );
 
+/* Read second nibble for 4-bit mode */
 #ifdef LCD_BUS4BIT
 
   LCD_SetE( ENABLE );
@@ -219,16 +263,21 @@ uint8_t LCD_Read_DDRAM( uint8_t dd_read_addr )
   dd_data |= LCD_Input();
   LCD_SetE( DISABLE );
   
-#endif
+#endif // LCD_READ_DD_SUPPORT 4-bit mode
 
   return dd_data;
 }
-#endif
+#endif // LCD_READ_DD_SUPPORT
 
 
 #ifdef LCD_READCHAR_SUPPORT
+
 /** Read character at the display coordinates specified, with
-  * the upper left cell being 0,0.
+  * (0,0) being the top left of the display.
+  *
+  * @param rc_x: X coordinate to read from
+  * @param rc_y: Y coordinate to read from
+  * @retval uint8_t: character read from the specified location
   */
 uint8_t LCD_Readchar( uint8_t rc_x, uint8_t rc_y )
 {
@@ -242,8 +291,11 @@ uint8_t LCD_Readchar( uint8_t rc_x, uint8_t rc_y )
 #endif
 
 
-// Writes a command to the LCD.
-//
+/** Send a command to the LCD
+  *
+  * @param cmd: command byte to send; see HD44780 datasheet for details.
+  * @retval none
+  */
 static inline void LCD_Command( uint8_t cmd )
 {
   LCD_SetRS( INSTR_REG );
@@ -272,6 +324,11 @@ static inline void LCD_Command( uint8_t cmd )
 }
 
 
+/** Waits until the LCD is no longer busy
+  *
+  * @param none
+  * @retval none
+  */
 static inline void LCD_BusyWait( void )
 {
   while( LCD_IsBusy() );
@@ -285,7 +342,13 @@ static inline void LCD_BusyWait( void )
 //
 #ifdef LCD_UDG_SUPPORT
 
-void LCD_Defchar( uint8_t ChToSet, uint8_t * ChDataset )
+/** Define a user-defined character
+  *
+  * @param ChToSet: character code to define (0-7)
+  * @param ChDataset: pointer to character data (8 bytes)
+  * @retval none
+  */
+void LCD_Defchar( uint16_t ChToSet, uint8_t * ChDataset )
 {
   uint16_t ChAddress,
       ch_line,
@@ -328,8 +391,12 @@ void LCD_Defchar( uint8_t ChToSet, uint8_t * ChDataset )
 #endif
 
 
-// Function to allow arbitrary placement of text on the display.
-//
+/** Move the cursor to the specified coordinates
+  *
+  * @param x: X coordinate (0 to XMAX)
+  * @param y: Y coordinate (0 to YMAX)
+  * @retval none
+  */
 void LCD_Locate( uint8_t x, uint8_t y )
 {
   uint8_t addr = LCD_DDRAM_Addr( x, y );
@@ -339,8 +406,11 @@ void LCD_Locate( uint8_t x, uint8_t y )
 }
 
 
-// Function to write data to the LCD
-//
+/** Write data to the LCD
+  *
+  * @param dat: data byte to write
+  * @retval none
+  */
 void LCD_PutData( uint8_t dat )
 {
     LCD_BusyWait();
@@ -369,8 +439,11 @@ void LCD_PutData( uint8_t dat )
 
 
 
-// Scrolling support, to give a traditional primitive terminal experience to the LCD
-//
+/** Scroll the display up one line, this is only available if enabled.
+  *
+  * @param none
+  * @retval none
+  */
 #ifdef LCD_SCROLL_SUPPORT
 
 void LCD_ScrollUp( void )
@@ -380,12 +453,10 @@ void LCD_ScrollUp( void )
         ch_moving,
         new_addr;
 
-  // Do a sanity check.
-  //
+/* Don't scroll if there is only one line */
    if( YMAX == 0 ) return;
 
-  // Make a copy one line up
-  //  
+/* Make a copy one line up */
   for( line = 1; line <= YMAX; line++)
     for( line_pos = 0; line_pos <= XMAX; line_pos++ )
     {
@@ -395,8 +466,7 @@ void LCD_ScrollUp( void )
       LCD_PutData( ch_moving );
     }
   
-  // Clear the last line
-  //  
+  /* Clear the last line */
   for(line_pos = 0; line_pos <= XMAX; line_pos++)
   {
     LCD_Command(
@@ -410,6 +480,12 @@ void LCD_ScrollUp( void )
 #endif
 
 
+/** Get the DDRAM address for the specified coordinates
+  *
+  * @param dd_x: X coordinate (0 to XMAX)
+  * @param dd_y: Y coordinate (0 to YMAX)
+  * @retval uint8_t: DDRAM address for the specified coordinates
+  */
 uint8_t LCD_DDRAM_Addr( uint8_t dd_x, uint8_t dd_y )
 {  
   /* Clamp coordinates to valid range to avoid indexing hd_map out-of-bounds. */
@@ -420,13 +496,16 @@ uint8_t LCD_DDRAM_Addr( uint8_t dd_x, uint8_t dd_y )
 }
 
 
-// Putchar, by another name.
-//
-// This LCD driver is compatible with the CCS C compiler for PICs as well,
-// and that does not support customizing of putchar, so we do it this way.
-//
 #define LCD_Putc( ch_to_put ) LCD_Putchar( ch_to_put );
 
+/* Non stdio.h version of putchar 
+ * for use with compilers like CCS C
+ *
+ * @brief Write a character to the LCD
+ *
+ * @param ch_to_put: character to write
+ * @retval none
+ */
 uint8_t LCD_Putchar( uint8_t ch )
 {
   if( hd_xpos > XMAX )
@@ -462,7 +541,7 @@ uint8_t LCD_Putchar( uint8_t ch )
         LCD_ScrollUp();
         hd_ypos = YMAX;
       }
-#else
+#else // The alternative is to wrap around and overwrite. Meh!
       {
         hd_xpos=0;
         hd_ypos=0;
@@ -484,11 +563,11 @@ uint8_t LCD_Putchar( uint8_t ch )
       hd_xpos++;
 
 #ifdef LCD_SCROLL_SUPPORT
-    if( hd_ypos > YMAX )
-    {
-      LCD_ScrollUp();
-      hd_ypos = YMAX;
-    }
+      if( hd_ypos > YMAX )
+      {
+        LCD_ScrollUp();
+        hd_ypos = YMAX;
+      }
 #else
     if( hd_ypos > YMAX )
     {
@@ -502,7 +581,7 @@ uint8_t LCD_Putchar( uint8_t ch )
   return ch;
 }
 
-
+/* CrossWorks ARM printf support */
 #ifdef __CROSSWORKS_ARM
 int __putchar(int ch, __printf_tag_ptr ptr)
 {
@@ -510,6 +589,7 @@ int __putchar(int ch, __printf_tag_ptr ptr)
 }
 #endif
 
+/* GNU putchar support. (Some might prefer _write instead) */
 #if defined(__GNUC__) && !defined(__CROSSWORKS_ARM)
 
 PUTCHAR_PROTOTYPE
@@ -517,10 +597,28 @@ PUTCHAR_PROTOTYPE
   LCD_Putchar( ch );
   return ch;
 }
+
+/* newlib _write syscall — routes printf/puts output to the LCD.
+ * Without this, printf calls the unimplemented stub in libg_nano and
+ * nothing appears on the display.                                     */
+int _write(int fd, char *ptr, int len)
+{
+  (void)fd;
+  for (int i = 0; i < len; i++)
+  {
+    LCD_Putchar( (uint8_t)ptr[i] );
+  }
+  return len;
+}
+
 #endif
 
 
-// Clears the display and returns the cursor to home position.
+/** Clear the LCD display
+  *
+  * @param none
+  * @retval none
+  */
 void LCD_Clear(void)
 {
   LCD_BusyWait();
@@ -530,8 +628,11 @@ void LCD_Clear(void)
 }
 
 
-// Turns the cursor off or on.
-//
+/** Set the cursor state
+  *
+  * @param cursor_state: 1 = Blinking cursor, 0 = No cursor.
+  * @retval none
+  */
 void LCD_Cursor( uint8_t cursor_state )
 {
   LCD_Command( 
@@ -540,51 +641,59 @@ void LCD_Cursor( uint8_t cursor_state )
 }
 
 
-// Initialises the LCD.
-//
-// The user must call this at the start or the display won't work.
-//
+/** Initialize the LCD
+  *
+  * @brief  Initializes the HD44780 LCD display connected to
+  *         the microcontroller.  This must be called before any
+  *         other LCD functions are used.
+  *
+  * @param none
+  * @retval none
+  */
 void LCD_Init(void)
 {
   /*Stops buffering which breaks this driver outright */
-  #ifdef __GNUC__
+#ifdef __GNUC__
   setvbuf(stdout, NULL, _IONBF, 0); // No Buffering
-  #endif
+#endif
 
-  /*Initialise the LCD */
+  /*Initialise the LCD pins */
   LCD_Input();
-  LCD_SetE(DISABLE);
-  LCD_SetRS(INSTR_REG);
-  LCD_SetRNW(READ);
+  LCD_SetE( DISABLE );
+  LCD_SetRS( INSTR_REG );
+  LCD_SetRNW( READ );
 
+  /* Wait for more than 15 ms after VCC rises to 4.5V */
   Delay_ms( 15 );
 
-  LCD_SetRNW(WRITE);
-  LCD_Output( FUNC_SET | BUSWIDTH | NUMLINES );
-  LCD_SetE(ENABLE);
-  LCD_SetE(DISABLE);
-  LCD_Output( 0 );
-  LCD_SetE(ENABLE);
-  LCD_SetE(DISABLE);
-  Delay_ms( 5 );
+  /* HD44780 4-bit bus initialisation reset sequence (datasheet Figure 24).
+   * Send three single upper-nibble pulses of FUNC_SET|DL_EIGHT (0x30) to
+   * resynchronise the controller.  The LCD is still in 8-bit mode here so
+   * no second nibble must be sent and the busy flag must not be checked.  */
+  LCD_SetRNW( WRITE );
 
-  LCD_SetRNW(WRITE);
-  LCD_Output( FUNC_SET | BUSWIDTH | NUMLINES );
-  LCD_SetE(ENABLE);
-  LCD_SetE(DISABLE);
-  LCD_Output( 0 );
-  LCD_SetE(ENABLE);
-  LCD_SetE(DISABLE);
-  Delay_ms( 5 );
+  LCD_Output( FUNC_SET | DL_EIGHT );    /* DB7-4 = 0011 */
+  LCD_SetE( ENABLE );
+  LCD_SetE( DISABLE );
+  Delay_ms( 5 );                        /* datasheet: wait >4.1 ms */
 
-  LCD_SetRNW(WRITE);
-  LCD_Output( FUNC_SET | BUSWIDTH | NUMLINES );
-  LCD_SetE(ENABLE);
-  LCD_SetE(DISABLE);
-  LCD_Output( 0 );
-  LCD_SetE(ENABLE);
-  LCD_SetE(DISABLE);
-  Delay_ms( 5 );
+  LCD_Output( FUNC_SET | DL_EIGHT );
+  LCD_SetE( ENABLE );
+  LCD_SetE( DISABLE );
+  Delay_ms( 1 );                        /* datasheet: wait >100 µs */
+
+  LCD_Output( FUNC_SET | DL_EIGHT );
+  LCD_SetE( ENABLE) ;
+  LCD_SetE( DISABLE );
+  Delay_ms( 1 );
+
+  /* Switch to 4-bit bus mode — still a single upper-nibble, no second nibble */
+  LCD_Output( FUNC_SET );               /* DB7-4 = 0010 */
+  LCD_SetE( ENABLE) ;
+  LCD_SetE( DISABLE );
+  Delay_ms( 1 );
+
+  /* LCD is now in 4-bit mode — all remaining commands use two nibbles */
 
 #ifdef HD_ISVFD
 
