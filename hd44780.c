@@ -19,7 +19,7 @@
     USA
 */
 
-//#include "main.h"
+#include "main.h"
 #include "stdio.h"
 #include "hardware.h"
 #include "hd44780.h"
@@ -32,13 +32,17 @@ static inline void LCD_BusyWait     ( void );
 
 // Hardware Abstraction Layer Functions
 //
-static inline void LCD_SetRS        ( uint8_t state );
-static inline void LCD_SetRNW       ( uint8_t state );
-static inline void LCD_SetE         ( uint8_t state );
-static inline void LCD_SetBusInput  ( void );
-static inline uint8_t LCD_Input        ( void );
-static inline void LCD_Output       ( uint8_t ch );
-static inline uint8_t LCD_IsBusy       ( void );
+static inline void    LCD_SetRS       ( uint8_t state );
+static inline void    LCD_SetRNW      ( uint8_t state );
+static inline void    LCD_SetE        ( uint8_t state );
+static inline void    LCD_SetBusInput ( void );
+static inline uint8_t LCD_Input       ( void );
+static inline void    LCD_OutputUpperNibble( uint8_t ch );
+#ifdef LCD_BUS8BIT
+static inline void    LCD_OutputLowerNibble( uint8_t ch );
+#endif
+static inline void    LCD_Output      ( uint8_t ch );
+static inline uint8_t LCD_IsBusy      ( void );
 
 /** Different platforms require different delay solutions, so
   * so below is a macro to substitute your own,
@@ -50,6 +54,13 @@ static inline uint8_t LCD_IsBusy       ( void );
 #ifdef _HW_INTERFACE_STM32_H
 #define Delay_ms( ms_delay ) HAL_Delay( ms_delay )
 #endif
+
+/* HD44780 bootstrap values for 4-bit initialization sequence. */
+#define LCD_INIT_PWRON_DELAY_MS       15
+#define LCD_INIT_WAKE_DELAY_MS         5
+#define LCD_INIT_STEP_DELAY_MS         1
+#define LCD_INIT_WAKE_NIBBLE        0x30
+#define LCD_INIT_SET_4BIT_NIBBLE    0x20
 
 
 /** HD44780 system variables
@@ -66,9 +77,7 @@ static const    uint8_t   hd_map[]  = HD_ADDR_MAP;
   * Brightness will vary from 25% to 100%
   */
 #ifdef HD_ISVFD
-
 char vfd_intensity = VFD100;
-
 #endif
 
  
@@ -174,19 +183,35 @@ static inline uint8_t LCD_Input( void )
  */
 static inline void LCD_Output( uint8_t ch )
 {
-  /* These lines are always set */
+  LCD_OutputUpperNibble( ch );
+#ifdef LCD_BUS8BIT
+  LCD_OutputLowerNibble( ch );
+#endif
+}
+
+
+/* Output only the upper nibble (D7..D4) to the LCD bus.
+ * Useful during 4-bit startup when the controller has not yet latched 4-bit mode.
+ */
+static inline void LCD_OutputUpperNibble( uint8_t ch )
+{
   Output_Pin( LCD_D7, LCD_D7_BANK, ch & 0x80 );
   Output_Pin( LCD_D6, LCD_D6_BANK, ch & 0x40 );
   Output_Pin( LCD_D5, LCD_D5_BANK, ch & 0x20 );
   Output_Pin( LCD_D4, LCD_D4_BANK, ch & 0x10 );
-#ifdef LCD_BUS8BIT
-  /* These lines are only for 8-bit mode */
-  Output_Pin( LCD_D3, LCD_D3_BANK, ch & 0x8 );
-  Output_Pin( LCD_D2, LCD_D2_BANK, ch & 0x4 );
-  Output_Pin( LCD_D1, LCD_D1_BANK, ch & 0x2 );
-  Output_Pin( LCD_D0, LCD_D0_BANK, ch & 0x1 );
-#endif
 }
+
+
+#ifdef LCD_BUS8BIT
+/* Output only the lower nibble (D3..D0) to the LCD bus. */
+static inline void LCD_OutputLowerNibble( uint8_t ch )
+{
+  Output_Pin( LCD_D3, LCD_D3_BANK, ch & 0x08 );
+  Output_Pin( LCD_D2, LCD_D2_BANK, ch & 0x04 );
+  Output_Pin( LCD_D1, LCD_D1_BANK, ch & 0x02 );
+  Output_Pin( LCD_D0, LCD_D0_BANK, ch & 0x01 );
+}
+#endif
 
 
 /** Read the busy flag from the LCD
@@ -256,14 +281,13 @@ uint8_t LCD_Read_DDRAM( uint8_t dd_read_addr )
 
 /* Read second nibble for 4-bit mode */
 #ifdef LCD_BUS4BIT
-
   LCD_SetE( ENABLE );
   delay_cycles( E_CYCLES );
   dd_data <<= 4;
   dd_data |= LCD_Input();
   LCD_SetE( DISABLE );
-  
-#endif // LCD_READ_DD_SUPPORT 4-bit mode
+  delay_cycles( E_CYCLES );
+#endif  // LCD_READ_DD_SUPPORT 4-bit mode
 
   return dd_data;
 }
@@ -335,11 +359,6 @@ static inline void LCD_BusyWait( void )
 }
 
 
-// Special characters not present in the LCD can be defined using this function.
-// 
-// ChToSet is the user designed character code and *ChDataset is a pointer to the
-// character data.
-//
 #ifdef LCD_UDG_SUPPORT
 
 /** Define a user-defined character
@@ -476,7 +495,6 @@ void LCD_ScrollUp( void )
     LCD_PutData( 0x20 ); 
   }
 }
-
 #endif
 
 
@@ -494,6 +512,7 @@ uint8_t LCD_DDRAM_Addr( uint8_t dd_x, uint8_t dd_y )
 
   return ( hd_map[ dd_x + ( XMAX + 1 ) * dd_y ] );
 }
+
 
 
 #define LCD_Putc( ch_to_put ) LCD_Putchar( ch_to_put );
@@ -597,20 +616,6 @@ PUTCHAR_PROTOTYPE
   LCD_Putchar( ch );
   return ch;
 }
-
-/* newlib _write syscall — routes printf/puts output to the LCD.
- * Without this, printf calls the unimplemented stub in libg_nano and
- * nothing appears on the display.                                     */
-int _write(int fd, char *ptr, int len)
-{
-  (void)fd;
-  for (int i = 0; i < len; i++)
-  {
-    LCD_Putchar( (uint8_t)ptr[i] );
-  }
-  return len;
-}
-
 #endif
 
 
@@ -654,46 +659,50 @@ void LCD_Init(void)
 {
   /*Stops buffering which breaks this driver outright */
 #ifdef __GNUC__
-  setvbuf(stdout, NULL, _IONBF, 0); // No Buffering
+  setvbuf( stdout, NULL, _IONBF, 0 ); // No Buffering
 #endif
 
   /*Initialise the LCD pins */
   LCD_Input();
   LCD_SetE( DISABLE );
   LCD_SetRS( INSTR_REG );
-  LCD_SetRNW( READ );
-
-  /* Wait for more than 15 ms after VCC rises to 4.5V */
-  Delay_ms( 15 );
-
-  /* HD44780 4-bit bus initialisation reset sequence (datasheet Figure 24).
-   * Send three single upper-nibble pulses of FUNC_SET|DL_EIGHT (0x30) to
-   * resynchronise the controller.  The LCD is still in 8-bit mode here so
-   * no second nibble must be sent and the busy flag must not be checked.  */
   LCD_SetRNW( WRITE );
 
-  LCD_Output( FUNC_SET | DL_EIGHT );    /* DB7-4 = 0011 */
+  /* Wait for more than 15 ms after VCC rises to 4.5V */
+  Delay_ms( LCD_INIT_PWRON_DELAY_MS );
+
+  /* 4-bit wake-up sequence from HD44780 datasheet: 0x3,0x3,0x3,0x2 on D7..D4. */
+#ifdef LCD_BUS4BIT
+  LCD_OutputUpperNibble( LCD_INIT_WAKE_NIBBLE );
   LCD_SetE( ENABLE );
   LCD_SetE( DISABLE );
-  Delay_ms( 5 );                        /* datasheet: wait >4.1 ms */
+  Delay_ms( LCD_INIT_WAKE_DELAY_MS );
 
-  LCD_Output( FUNC_SET | DL_EIGHT );
+  LCD_OutputUpperNibble( LCD_INIT_WAKE_NIBBLE );
   LCD_SetE( ENABLE );
   LCD_SetE( DISABLE );
-  Delay_ms( 1 );                        /* datasheet: wait >100 µs */
+  Delay_ms( LCD_INIT_STEP_DELAY_MS );
 
-  LCD_Output( FUNC_SET | DL_EIGHT );
-  LCD_SetE( ENABLE) ;
+  LCD_OutputUpperNibble( LCD_INIT_WAKE_NIBBLE );
+  LCD_SetE( ENABLE );
   LCD_SetE( DISABLE );
-  Delay_ms( 1 );
+  Delay_ms( LCD_INIT_STEP_DELAY_MS );
 
-  /* Switch to 4-bit bus mode — still a single upper-nibble, no second nibble */
-  LCD_Output( FUNC_SET );               /* DB7-4 = 0010 */
-  LCD_SetE( ENABLE) ;
+  LCD_OutputUpperNibble( LCD_INIT_SET_4BIT_NIBBLE );
+  LCD_SetE( ENABLE );
   LCD_SetE( DISABLE );
-  Delay_ms( 1 );
+  Delay_ms( LCD_INIT_STEP_DELAY_MS );
+#else
+  LCD_Output( FUNC_SET | BUSWIDTH | NUMLINES );
+  LCD_SetE( ENABLE );
+  LCD_SetE( DISABLE );
+  Delay_ms( LCD_INIT_WAKE_DELAY_MS );
 
-  /* LCD is now in 4-bit mode — all remaining commands use two nibbles */
+  LCD_Output( FUNC_SET | BUSWIDTH | NUMLINES );
+  LCD_SetE( ENABLE );
+  LCD_SetE( DISABLE );
+  Delay_ms( LCD_INIT_STEP_DELAY_MS );
+#endif
 
 #ifdef HD_ISVFD
 

@@ -364,7 +364,7 @@ int __putchar(int ch, __printf_tag_ptr ptr);
 #endif
 
 #if defined(__GNUC__) && !defined(__CROSSWORKS_ARM)
-#define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
+  #define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
 #endif
 
 // HACK: Further iffy bit, also covering CCS C's inbuilt functions
