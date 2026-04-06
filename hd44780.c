@@ -364,10 +364,10 @@ static inline void LCD_BusyWait( void )
 /** Define a user-defined character
   *
   * @param ChToSet: character code to define (0-7)
-  * @param ChDataset: pointer to character data (8 bytes)
+  * @param ChDataset: pointer to character data (8 bytes, read-only)
   * @retval none
   */
-void LCD_Defchar( uint16_t ChToSet, uint8_t * ChDataset )
+void LCD_Defchar( uint16_t ChToSet, const uint8_t * ChDataset )
 {
   uint16_t ChAddress,
       ch_line,

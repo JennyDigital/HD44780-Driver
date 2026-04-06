@@ -389,7 +389,7 @@ void LCD_Printf           ( uint8_t * string );
 void LCD_Clear            ( void );
 
 #ifdef LCD_UDG_SUPPORT
-void LCD_Defchar          ( uint16_t ChToSet, uint8_t * ChDataset );
+void LCD_Defchar          ( uint16_t ChToSet, const uint8_t * ChDataset );
 #endif
 
 #ifdef LCD_SCROLL_SUPPORT
