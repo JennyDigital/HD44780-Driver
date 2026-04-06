@@ -148,6 +148,14 @@
   */
   //#define HD_NL_DOES_CR
 
+/** Character font selection.
+  *
+  * 5x10 mode is intended for supported one-line modules.
+  */
+  #define LCD_CHAR_FONT_5X8    0u
+  #define LCD_CHAR_FONT_5X10   1u
+  #define LCD_CHAR_FONT        LCD_CHAR_FONT_5X8
+
 /** Do you want scrolling or wrap to beginning?
   *
   */
@@ -165,6 +173,12 @@
   * Increase this if longer formatted strings are required.
   */
   #define LCD_PRINTF_BUFFER_SIZE 64
+
+/** Maximum number of busy-flag polls before timing out.
+  *
+  * Increase this for slower interfaces, or set to 0 to wait forever.
+  */
+  #define LCD_BUSY_WAIT_TIMEOUT 100000UL
 
 /** =================================
   * End of user configurable section
@@ -195,31 +209,59 @@
 
 /** LCD Commands
   */
-#define CLR_DISP      0b00000001
-#define RET_HOME      0b00000010
-#define ENT_MODE      0b00000100
-#define DISP_CTRL     0b00001000
-#define CURS_DISP_SH  0b00010000
-#define FUNC_SET      0b00100000
-#define SET_CGRAM_ADD 0b01000000
-#define SET_DDRAM_ADD 0b10000000
+#define CLR_DISP      0b00000001    // Clear display and return home
+#define RET_HOME      0b00000010    // Return cursor to home position
+#define ENT_MODE      0b00000100    // Entry mode set
+#define DISP_CTRL     0b00001000    // Display control
+#define CURS_DISP_SH  0b00010000    // Cursor or display shift
+#define FUNC_SET      0b00100000    // Function set
+#define SET_CGRAM_ADD 0b01000000    // Set CGRAM address
+#define SET_DDRAM_ADD 0b10000000    // Set DDRAM address
 
 
 /** LCD Command Parameters
   */
-#define INC           0b00000010
-#define DEC           0b00000000
-#define SHIFT         0b00000001
-#define DISP          0b00000100
-#define CURSOR        0b00000010
-#define NO_CURSOR     0b00000000
-#define BLINK         0b00000001
-#define DIS_SHIFT     0b00001000
-#define RIGHT         0b00000100
-#define DL_EIGHT      0b00010000
-#define TWOLINES      0b00001000
-#define ONELINE       0b00000000
-#define FIVETEN       0b00000100
+#define INC           0b00000010    // Cursor move direction
+#define SHIFT         0b00000001    // Shift display when moving cursor
+#define DEC           0b00000000    // Cursor move direction
+#define SHIFT         0b00000001    // Shift display when moving cursor
+#define DISP          0b00000100    // Display on/off
+#define CURS          0b00000010    // Cursor on/off
+#define CURSOR        0b00000010    // Cursor on/off
+#define NO_CURSOR     0b00000000    // No cursor
+#define BLINK         0b00000001    // Blink cursor
+#define DIS_SHIFT     0b00001000    // Display shift
+#define RIGHT         0b00000100    // Shift right
+#define DL_EIGHT      0b00010000    // 8-bit bus mode
+#define TWOLINES      0b00001000    // 2-line display mode
+#define ONELINE       0b00000000    // 1-line display mode
+#define FIVETEN       0b00000100    // 5x10 dot character font (vs 5x8)
+
+#if LCD_CHAR_FONT == LCD_CHAR_FONT_5X10
+  #define LCD_CHAR_FONT_BITS     FIVETEN
+  #define LCD_CGRAM_CHAR_ROWS    11u
+  #define LCD_CGRAM_CHAR_STRIDE  16u
+  #define LCD_CGRAM_CHAR_SLOTS   4u
+#else
+  #define LCD_CHAR_FONT_BITS     0u
+  #define LCD_CGRAM_CHAR_ROWS    8u
+  #define LCD_CGRAM_CHAR_STRIDE  8u
+  #define LCD_CGRAM_CHAR_SLOTS   8u
+#endif
+
+/** Public cursor mode values for LCD_Cursor(). */
+#define LCD_CURSOR_OFF              NO_CURSOR
+#define LCD_CURSOR_UNDERLINE        CURSOR
+#define LCD_CURSOR_BLINK            BLINK
+#define LCD_CURSOR_UNDERLINE_BLINK  ( CURSOR | BLINK )
+
+/** Public status bits returned by LCD_GetStatus(). */
+#define LCD_STATUS_OK               0b00000000
+#define LCD_STATUS_TIMEOUT          0b00000001
+
+/** Public result values returned by LCD read helpers. */
+#define LCD_RESULT_ERROR            0u
+#define LCD_RESULT_OK               1u
 //
 // These Last values are only for VFD displays.
 //
@@ -423,9 +465,22 @@
 
 /** Enable or disable the blinking cursor.
   *
-  * A non-zero value enables the cursor, zero disables it.
+  * Use LCD_CURSOR_OFF, LCD_CURSOR_UNDERLINE,
+  * LCD_CURSOR_BLINK, or LCD_CURSOR_UNDERLINE_BLINK.
   */
               void LCD_Cursor       ( uint8_t cursor_state );
+
+/** Return the current driver status bitmask.
+  *
+  * LCD_STATUS_TIMEOUT indicates that an LCD busy wait timed out.
+  */
+              uint8_t LCD_GetStatus ( void );
+
+/** Clear the current driver status bitmask.
+  *
+  * This allows operations to be retried after a timeout.
+  */
+              void LCD_ClearStatus  ( void );
 
 #ifdef __CROSSWORKS_ARM
 int __putchar(int ch, __printf_tag_ptr ptr);
@@ -446,8 +501,11 @@ void delay_cycles         ( uint8_t cycles_to_waste );
 
 // IO Functions.
 //
-/** Read a raw DDRAM byte from the specified controller address. */
-uint8_t LCD_Read_DDRAM    ( uint8_t dd_read_addr );
+/** Read a raw DDRAM byte from the specified controller address.
+  *
+  * Returns LCD_RESULT_OK on success and writes the byte to dd_data.
+  */
+uint8_t LCD_Read_DDRAM    ( uint8_t dd_read_addr, uint8_t * dd_data );
 
 /** Write a raw data byte to the display at the current cursor position. */
 void LCD_PutData          ( uint8_t dat );
@@ -465,8 +523,11 @@ uint8_t LCD_DDRAM_Addr    ( uint8_t dd_x, uint8_t dd_y );
 uint8_t LCD_Putchar       ( uint8_t ch );
 
 #ifdef LCD_READCHAR_SUPPORT
-/** Read the character currently shown at the specified display coordinate. */
-uint8_t LCD_Readchar      ( uint8_t rc_x, uint8_t rc_y );
+/** Read the character currently shown at the specified display coordinate.
+  *
+  * Returns LCD_RESULT_OK on success and writes the byte to rc_data.
+  */
+uint8_t LCD_Readchar      ( uint8_t rc_x, uint8_t rc_y, uint8_t * rc_data );
 #endif
 
 /** Write a null-terminated string directly to the display. */
@@ -484,7 +545,11 @@ int LCD_Printf            ( const char * format, ... );
 void LCD_Clear            ( void );
 
 #ifdef LCD_UDG_SUPPORT
-/** Define one user character in CGRAM from an 8-byte bitmap. */
+/** Define one user character in CGRAM.
+  *
+  * In 5x8 mode, ChDataset provides 8 rows and ChToSet may be 0 to 7.
+  * In 5x10 mode, ChDataset provides 11 rows and ChToSet may be 0 to 3.
+  */
 void LCD_Defchar          ( uint16_t ChToSet, const uint8_t * ChDataset );
 #endif
 

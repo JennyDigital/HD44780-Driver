@@ -29,7 +29,7 @@
 // Private System Control function prototypes.
 //
 static inline void LCD_Command      ( uint8_t cmd );
-static inline void LCD_BusyWait     ( void );
+static inline uint8_t LCD_BusyWait  ( void );
 
 // Hardware Abstraction Layer Functions
 //
@@ -63,15 +63,21 @@ static inline uint8_t LCD_IsBusy      ( void );
 #define LCD_INIT_WAKE_NIBBLE        0x30
 #define LCD_INIT_SET_4BIT_NIBBLE    0x20
 
+/* Internal status values used by busy-wait and read fallbacks. */
+#define LCD_BUSY_WAIT_COMPLETE         LCD_RESULT_OK
+#define LCD_BUSY_WAIT_FAILED           LCD_RESULT_ERROR
+#define LCD_READ_FALLBACK_VALUE      0x00u
+
 
 /** HD44780 system variables
   *
   */
-static          uint8_t   hd_xpos   = 0,
-                          hd_ypos   = 0;
+static          uint8_t   hd_xpos         = 0,
+                          hd_ypos         = 0;
 static          uint8_t   hd_wrap_pending = 0;
+static          uint8_t   hd_status       = LCD_STATUS_OK;
 static          uint8_t   dd_addr;
-static const    uint8_t   hd_map[]  = HD_ADDR_MAP;
+static const    uint8_t   hd_map[]        = HD_ADDR_MAP;
 
 
 /** VFD has four different intensities VFD25 VFD50 VFD75 and VFD100
@@ -259,13 +265,23 @@ static inline uint8_t LCD_IsBusy( void )
   * @param dd_read_addr: address to read from
   * @retval uint8_t: data read from DDRAM
   */
-uint8_t LCD_Read_DDRAM( uint8_t dd_read_addr )
+uint8_t LCD_Read_DDRAM( uint8_t dd_read_addr, uint8_t * dd_data )
 {
-  uint8_t dd_data;
+  if( dd_data == NULL ) return LCD_RESULT_ERROR;
+
+  if( hd_status & LCD_STATUS_TIMEOUT )
+  {
+    *dd_data = LCD_READ_FALLBACK_VALUE;
+    return LCD_RESULT_ERROR;
+  }
 
   /* Set DDRAM address to read from */
   LCD_Command( SET_DDRAM_ADD | dd_read_addr );
-  LCD_BusyWait();
+  if( !LCD_BusyWait() )
+  {
+    *dd_data = LCD_READ_FALLBACK_VALUE;
+    return LCD_RESULT_ERROR;
+  }
   LCD_SetRS( DATA_REG );
   LCD_SetRNW( READ );
 
@@ -275,7 +291,7 @@ uint8_t LCD_Read_DDRAM( uint8_t dd_read_addr )
   delay_cycles( E_CYCLES );
 
   /* Read data */
-  dd_data = LCD_Input();
+  *dd_data = LCD_Input();
 
   /* Turn off Enable pin */
   LCD_SetE( DISABLE );
@@ -285,13 +301,13 @@ uint8_t LCD_Read_DDRAM( uint8_t dd_read_addr )
 #ifdef LCD_BUS4BIT
   LCD_SetE( ENABLE );
   delay_cycles( E_CYCLES );
-  dd_data <<= 4;
-  dd_data |= LCD_Input();
+  *dd_data <<= 4;
+  *dd_data |= LCD_Input();
   LCD_SetE( DISABLE );
   delay_cycles( E_CYCLES );
 #endif  // LCD_READ_DD_SUPPORT 4-bit mode
 
-  return dd_data;
+  return LCD_RESULT_OK;
 }
 #endif // LCD_READ_DD_SUPPORT
 
@@ -305,13 +321,15 @@ uint8_t LCD_Read_DDRAM( uint8_t dd_read_addr )
   * @param rc_y: Y coordinate to read from
   * @retval uint8_t: character read from the specified location
   */
-uint8_t LCD_Readchar( uint8_t rc_x, uint8_t rc_y )
+uint8_t LCD_Readchar( uint8_t rc_x, uint8_t rc_y, uint8_t * rc_data )
 {
   int addr_to_sample;
 
+  if( rc_data == NULL ) return LCD_RESULT_ERROR;
+
   addr_to_sample = LCD_DDRAM_Addr( rc_x, rc_y );
 
-  return ( LCD_Read_DDRAM( addr_to_sample ) );
+  return LCD_Read_DDRAM( addr_to_sample, rc_data );
 }
 
 #endif
@@ -324,6 +342,8 @@ uint8_t LCD_Readchar( uint8_t rc_x, uint8_t rc_y )
   */
 static inline void LCD_Command( uint8_t cmd )
 {
+  if( hd_status & LCD_STATUS_TIMEOUT ) return;
+
   LCD_SetRS( INSTR_REG );
   LCD_SetRNW( WRITE );
 
@@ -355,9 +375,25 @@ static inline void LCD_Command( uint8_t cmd )
   * @param none
   * @retval none
   */
-static inline void LCD_BusyWait( void )
+static inline uint8_t LCD_BusyWait( void )
 {
-  while( LCD_IsBusy() );
+  unsigned long timeout_remaining = LCD_BUSY_WAIT_TIMEOUT;
+
+  if( hd_status & LCD_STATUS_TIMEOUT ) return LCD_BUSY_WAIT_FAILED;
+
+  while( LCD_IsBusy() )
+  {
+#if LCD_BUSY_WAIT_TIMEOUT > 0
+    if( timeout_remaining == 0 )
+    {
+      hd_status |= LCD_STATUS_TIMEOUT;
+      return LCD_BUSY_WAIT_FAILED;
+    }
+    timeout_remaining--;
+#endif
+  }
+
+  return LCD_BUSY_WAIT_COMPLETE;
 }
 
 
@@ -374,8 +410,12 @@ void LCD_Defchar( uint16_t ChToSet, const uint8_t * ChDataset )
   uint16_t ChAddress,
       ch_line,
       defchar_dd_addr;
+
+  if( hd_status & LCD_STATUS_TIMEOUT ) return;
+  if( ChDataset == NULL ) return;
+  if( ChToSet >= LCD_CGRAM_CHAR_SLOTS ) return;
    
-  ChAddress = ChToSet << 3;                     // Calculate address to UDG
+  ChAddress = ChToSet * LCD_CGRAM_CHAR_STRIDE;  // Calculate address to UDG
   
   LCD_SetRS( INSTR_REG );
   LCD_SetRNW( READ );
@@ -394,17 +434,22 @@ void LCD_Defchar( uint16_t ChToSet, const uint8_t * ChDataset )
 
 #endif
 
-  LCD_BusyWait();
+  if( !LCD_BusyWait() ) return;
 
   LCD_Command(SET_CGRAM_ADD | ChAddress );
   
-  for( ch_line = 0; ch_line < 8; ch_line++ )
+  for( ch_line = 0; ch_line < LCD_CGRAM_CHAR_ROWS; ch_line++ )
   {
     LCD_PutData( *ChDataset );
     ChDataset++;
   }
+
+  for( ; ch_line < LCD_CGRAM_CHAR_STRIDE; ch_line++ )
+  {
+    LCD_PutData( 0x00 );
+  }
   
-  LCD_BusyWait();
+  if( !LCD_BusyWait() ) return;
   LCD_Command( SET_DDRAM_ADD | defchar_dd_addr );
   LCD_BusyWait();
 }
@@ -420,6 +465,8 @@ void LCD_Defchar( uint16_t ChToSet, const uint8_t * ChDataset )
   */
 void LCD_Locate( uint8_t x, uint8_t y )
 {
+  if( hd_status & LCD_STATUS_TIMEOUT ) return;
+
   uint8_t addr = LCD_DDRAM_Addr( x, y );
   hd_xpos = x; hd_ypos = y;
   hd_wrap_pending = 0;
@@ -435,7 +482,7 @@ void LCD_Locate( uint8_t x, uint8_t y )
   */
 void LCD_PutData( uint8_t dat )
 {
-    LCD_BusyWait();
+  if( !LCD_BusyWait() ) return;
     LCD_SetRS( DATA_REG );
     LCD_SetRNW( WRITE );
     delay_cycles( E_CYCLES );
@@ -475,6 +522,7 @@ void LCD_ScrollUp( void )
         ch_moving,
         new_addr;
 
+  if( hd_status & LCD_STATUS_TIMEOUT ) return;
   hd_wrap_pending = 0;
 
 /* Don't scroll if there is only one line */
@@ -484,7 +532,7 @@ void LCD_ScrollUp( void )
   for( line = 1; line <= YMAX; line++)
     for( line_pos = 0; line_pos <= XMAX; line_pos++ )
     {
-      ch_moving = LCD_Readchar( line_pos, line );
+      if( !LCD_Readchar( line_pos, line, &ch_moving ) ) return;
       new_addr = LCD_DDRAM_Addr( line_pos, line - 1 );
       LCD_Command( SET_DDRAM_ADD | new_addr );
       LCD_PutData( ch_moving );
@@ -532,6 +580,8 @@ uint8_t LCD_DDRAM_Addr( uint8_t dd_x, uint8_t dd_y )
  */
 uint8_t LCD_Putchar( uint8_t ch )
 {
+  if( hd_status & LCD_STATUS_TIMEOUT ) return ch;
+
   if( hd_wrap_pending )
   {
     hd_wrap_pending = 0;
@@ -701,9 +751,9 @@ PUTCHAR_PROTOTYPE
   */
 void LCD_Clear(void)
 {
-  LCD_BusyWait();
+  if( !LCD_BusyWait() ) return;
   LCD_Command(CLR_DISP);
-  LCD_BusyWait();
+  if( !LCD_BusyWait() ) return;
   hd_wrap_pending = 0;
   LCD_Locate( 0, 0 );
 }
@@ -711,14 +761,38 @@ void LCD_Clear(void)
 
 /** Set the cursor state
   *
-  * @param cursor_state: 1 = Blinking cursor, 0 = No cursor.
+  * @param cursor_state: LCD_CURSOR_OFF, LCD_CURSOR_UNDERLINE,
+  *                      LCD_CURSOR_BLINK, or
+  *                      LCD_CURSOR_UNDERLINE_BLINK.
   * @retval none
   */
 void LCD_Cursor( uint8_t cursor_state )
 {
+  if( hd_status & LCD_STATUS_TIMEOUT ) return;
+
   LCD_Command( 
-              DISP_CTRL | DISP | ( cursor_state ? BLINK : 0 )
+              DISP_CTRL | DISP | ( cursor_state & ( CURSOR | BLINK ) )
              );
+}
+
+
+/** Return the current driver status bitmask.
+  *
+  * @retval uint8_t: LCD_STATUS_* bitmask
+  */
+uint8_t LCD_GetStatus( void )
+{
+  return hd_status;
+}
+
+
+/** Clear the current driver status bitmask.
+  *
+  * @retval none
+  */
+void LCD_ClearStatus( void )
+{
+  hd_status = LCD_STATUS_OK;
 }
 
 
@@ -733,6 +807,8 @@ void LCD_Cursor( uint8_t cursor_state )
   */
 void LCD_Init(void)
 {
+  hd_status = LCD_STATUS_OK;
+
   /*Stops buffering which breaks this driver outright */
 #ifdef __GNUC__
   setvbuf( stdout, NULL, _IONBF, 0 ); // No Buffering
@@ -782,20 +858,20 @@ void LCD_Init(void)
 
 #ifdef HD_ISVFD
 
-  LCD_Command( FUNC_SET | BUSWIDTH | NUMLINES | vfd_intensity );
+  LCD_Command( FUNC_SET | BUSWIDTH | NUMLINES | LCD_CHAR_FONT_BITS | vfd_intensity );
   Delay_ms( 15 );
-  LCD_Command( FUNC_SET | BUSWIDTH | NUMLINES | vfd_intensity );
+  LCD_Command( FUNC_SET | BUSWIDTH | NUMLINES | LCD_CHAR_FONT_BITS | vfd_intensity );
   Delay_ms( 10 );
-  LCD_Command( FUNC_SET | BUSWIDTH | NUMLINES | vfd_intensity );
+  LCD_Command( FUNC_SET | BUSWIDTH | NUMLINES | LCD_CHAR_FONT_BITS | vfd_intensity );
   Delay_ms( 10 );
    
 #else  
   
-  LCD_Command( FUNC_SET | BUSWIDTH | NUMLINES );
+  LCD_Command( FUNC_SET | BUSWIDTH | NUMLINES | LCD_CHAR_FONT_BITS );
   Delay_ms( 15 );
-  LCD_Command( FUNC_SET | BUSWIDTH | NUMLINES );
+  LCD_Command( FUNC_SET | BUSWIDTH | NUMLINES | LCD_CHAR_FONT_BITS );
   Delay_ms( 5 );
-  LCD_Command( FUNC_SET | BUSWIDTH | NUMLINES );
+  LCD_Command( FUNC_SET | BUSWIDTH | NUMLINES | LCD_CHAR_FONT_BITS );
   Delay_ms( 5 );
 
 #endif
@@ -817,7 +893,7 @@ void LCD_Init(void)
 
 void LCD_VFD_Intensity( char intensity )
 {
-  LCD_Command( FUNC_SET | BUSWIDTH | NUMLINES | intensity );
+  LCD_Command( FUNC_SET | BUSWIDTH | NUMLINES | LCD_CHAR_FONT_BITS | intensity );
 }
 
 #endif
