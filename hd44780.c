@@ -21,6 +21,7 @@
 
 #include "main.h"
 #include "stdio.h"
+#include <stdarg.h>
 #include "hardware.h"
 #include "hd44780.h"
 
@@ -68,6 +69,7 @@ static inline uint8_t LCD_IsBusy      ( void );
   */
 static          uint8_t   hd_xpos   = 0,
                           hd_ypos   = 0;
+static          uint8_t   hd_wrap_pending = 0;
 static          uint8_t   dd_addr;
 static const    uint8_t   hd_map[]  = HD_ADDR_MAP;
 
@@ -420,6 +422,7 @@ void LCD_Locate( uint8_t x, uint8_t y )
 {
   uint8_t addr = LCD_DDRAM_Addr( x, y );
   hd_xpos = x; hd_ypos = y;
+  hd_wrap_pending = 0;
   
   LCD_Command( SET_DDRAM_ADD | addr );
 }
@@ -471,6 +474,8 @@ void LCD_ScrollUp( void )
         line,
         ch_moving,
         new_addr;
+
+  hd_wrap_pending = 0;
 
 /* Don't scroll if there is only one line */
    if( YMAX == 0 ) return;
@@ -527,23 +532,55 @@ uint8_t LCD_DDRAM_Addr( uint8_t dd_x, uint8_t dd_y )
  */
 uint8_t LCD_Putchar( uint8_t ch )
 {
-  if( hd_xpos > XMAX )
+  if( hd_wrap_pending )
   {
-    hd_xpos = 0;
-    hd_ypos++;
-  }
+    hd_wrap_pending = 0;
 
-  if( hd_ypos > YMAX )
-#ifdef LCD_SCROLL_SUPPORT
+    if( ch == '\r' )
     {
-      hd_ypos = YMAX;
-      LCD_ScrollUp();
+      hd_xpos = 0;
     }
-#else   // The alternative is to wrap around and overwrite. Meh!
+    else if( ch == '\n' )
     {
-      hd_ypos = 0;
-    }
+      hd_ypos++;
+#ifdef HD_NL_DOES_CR
+      hd_xpos = 0;
 #endif
+
+      if( hd_ypos > YMAX )
+#ifdef LCD_SCROLL_SUPPORT
+      {
+        LCD_ScrollUp();
+        hd_ypos = YMAX;
+      }
+#else // The alternative is to wrap around and overwrite. Meh!
+      {
+        hd_xpos=0;
+        hd_ypos=0;
+      }
+#endif
+
+      LCD_Command( SET_DDRAM_ADD | LCD_DDRAM_Addr( hd_xpos, hd_ypos ) );
+      return ch;
+    }
+    else
+    {
+      hd_xpos = 0;
+      hd_ypos++;
+
+      if( hd_ypos > YMAX )
+#ifdef LCD_SCROLL_SUPPORT
+      {
+        hd_ypos = YMAX;
+        LCD_ScrollUp();
+      }
+#else   // The alternative is to wrap around and overwrite. Meh!
+      {
+        hd_ypos = 0;
+      }
+#endif
+    }
+  }
      
   dd_addr = LCD_DDRAM_Addr( hd_xpos, hd_ypos );
   
@@ -572,6 +609,7 @@ uint8_t LCD_Putchar( uint8_t ch )
     case '\r':
       {
         hd_xpos = 0;
+        hd_wrap_pending = 0;
         LCD_Command( SET_DDRAM_ADD | LCD_DDRAM_Addr( hd_xpos, hd_ypos ) );
         break;
       }
@@ -579,26 +617,63 @@ uint8_t LCD_Putchar( uint8_t ch )
     default:
       LCD_Command( SET_DDRAM_ADD | dd_addr );
       LCD_PutData( ch );
-      hd_xpos++;
-
-#ifdef LCD_SCROLL_SUPPORT
-      if( hd_ypos > YMAX )
+      if( hd_xpos < XMAX )
       {
-        LCD_ScrollUp();
-        hd_ypos = YMAX;
+        hd_xpos++;
       }
-#else
-    if( hd_ypos > YMAX )
-    {
-      /* Wrap to top if scrolling is not supported */
-      hd_ypos = 0;
-    }
-#endif
+      else
+      {
+        hd_wrap_pending = 1;
+      }
 
     LCD_Command( SET_DDRAM_ADD | LCD_DDRAM_Addr( hd_xpos, hd_ypos ) );
   }
   return ch;
 }
+
+/** Write a null-terminated string to the LCD.
+  *
+  * @param string: string to write
+  * @retval none
+  */
+void LCD_Puts( const char * string )
+{
+  if( string == NULL ) return;
+
+  while( *string )
+  {
+    LCD_Putchar( ( uint8_t )*string );
+    string++;
+  }
+}
+
+#ifdef LCD_PRINTF_SUPPORT
+/** Format a string and write it to the LCD.
+  *
+  * Output is truncated to LCD_PRINTF_BUFFER_SIZE - 1 characters.
+  *
+  * @param format: printf-style format string
+  * @retval int: number of characters that would have been written,
+  *              or a negative value on formatting error.
+  */
+int LCD_Printf( const char * format, ... )
+{
+  char buffer[ LCD_PRINTF_BUFFER_SIZE ];
+  va_list args;
+  int chars_formatted;
+
+  if( format == NULL ) return -1;
+
+  va_start( args, format );
+  chars_formatted = vsnprintf( buffer, sizeof( buffer ), format, args );
+  va_end( args );
+
+  if( chars_formatted < 0 ) return chars_formatted;
+
+  LCD_Puts( buffer );
+  return chars_formatted;
+}
+#endif
 
 /* CrossWorks ARM printf support */
 #ifdef __CROSSWORKS_ARM
@@ -629,6 +704,7 @@ void LCD_Clear(void)
   LCD_BusyWait();
   LCD_Command(CLR_DISP);
   LCD_BusyWait();
+  hd_wrap_pending = 0;
   LCD_Locate( 0, 0 );
 }
 
@@ -728,6 +804,7 @@ void LCD_Init(void)
   LCD_BusyWait();
   LCD_Command(CLR_DISP);
   LCD_BusyWait();
+  hd_wrap_pending = 0;
   LCD_Command(ENT_MODE | INC);
 }
 

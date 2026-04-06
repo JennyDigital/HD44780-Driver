@@ -23,6 +23,7 @@
 #ifndef _HD44780_H
 #define _HD44780_H
 #include "stdio.h"
+#include <stdarg.h>
 #include <stdint.h>
 #include "main.h"
 
@@ -117,6 +118,9 @@
 // #define HD_PANEL_16X2
 // #define HD_PANEL_16X4
 // #define HD_PANEL_20X2
+// #define HD_PANEL_24X1_T1     // Split-address 24x1 modules
+// #define HD_PANEL_24X1_T2     // Linear-address 24x1 modules
+// #define HD_PANEL_24X2
 #define HD_PANEL_20X4
 // #define HD_PANEL_40X2
 
@@ -148,6 +152,19 @@
   *
   */
   #define LCD_SCROLL_SUPPORT
+
+/** Enable formatted string output helpers.
+  *
+  * This is independent of stdio retargeting support and can be
+  * disabled at compile time if formatted output is not needed.
+  */
+  #define LCD_PRINTF_SUPPORT
+
+/** Scratch buffer size used by LCD_Printf.
+  *
+  * Increase this if longer formatted strings are required.
+  */
+  #define LCD_PRINTF_BUFFER_SIZE 64
 
 /** =================================
   * End of user configurable section
@@ -311,6 +328,43 @@
 #endif
 
 
+#ifdef HD_PANEL_24X1_T1     //  24 by 1 type 1
+
+#define YMAX      0
+#define XMAX      23
+#define HD_ADDR_MAP { 0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xA, 0xB,\
+                      0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4A, 0x4B }
+// Notice the f**ked up system HD44780 Controllers use!
+//
+#define NUMLINES  TWOLINES
+
+#endif
+
+
+#ifdef HD_PANEL_24X1_T2     //  24 by 1 type 2
+
+#define YMAX      0
+#define XMAX      23
+#define HD_ADDR_MAP { 0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xA, 0xB,\
+                      0xC, 0xD, 0xE, 0xF, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17 }
+#define NUMLINES  TWOLINES
+
+#endif
+
+
+#ifdef HD_PANEL_24X2     //  24 by 2
+
+#define YMAX      1
+#define XMAX      23
+#define HD_ADDR_MAP { 0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xA, 0xB,\
+                      0xC, 0xD, 0xE, 0xF, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,\
+                      0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4A, 0x4B,\
+                      0x4C, 0x4D, 0x4E, 0x4F, 0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57 }
+#define NUMLINES  TWOLINES
+
+#endif
+
+
 #ifdef HD_PANEL_20X4     //  20 by 4
 
 #define YMAX      3
@@ -355,8 +409,22 @@
 
 // System Control
 //
+/** Initialize the LCD controller and display state.
+  *
+  * Call this once before any other LCD API.
+  */
               void LCD_Init         ( void );
+
+/** Move the cursor to a display coordinate.
+  *
+  * Coordinates are interpreted using the currently selected panel map.
+  */
               void LCD_Locate       ( uint8_t x, uint8_t y );
+
+/** Enable or disable the blinking cursor.
+  *
+  * A non-zero value enables the cursor, zero disables it.
+  */
               void LCD_Cursor       ( uint8_t cursor_state );
 
 #ifdef __CROSSWORKS_ARM
@@ -370,35 +438,65 @@ int __putchar(int ch, __printf_tag_ptr ptr);
 // HACK: Further iffy bit, also covering CCS C's inbuilt functions
 //       but not accurate.  Its just to get things working.
 //
+/** Waste a small number of CPU cycles.
+  *
+  * Used by the driver timing layer and left public for portability.
+  */
 void delay_cycles         ( uint8_t cycles_to_waste );
 
 // IO Functions.
 //
+/** Read a raw DDRAM byte from the specified controller address. */
 uint8_t LCD_Read_DDRAM    ( uint8_t dd_read_addr );
+
+/** Write a raw data byte to the display at the current cursor position. */
 void LCD_PutData          ( uint8_t dat );
+
+/** Translate display coordinates to a controller DDRAM address. */
 uint8_t LCD_DDRAM_Addr    ( uint8_t dd_x, uint8_t dd_y );
+
+/** Write one character using the driver's cursor handling rules.
+  *
+  * Writing to the last visible column defers wrap until the next output
+  * action so the bottom-right character remains visible. '\r' returns to
+  * column 0, while '\n' advances one row and only also resets the column
+  * when HD_NL_DOES_CR is defined.
+  */
 uint8_t LCD_Putchar       ( uint8_t ch );
 
 #ifdef LCD_READCHAR_SUPPORT
+/** Read the character currently shown at the specified display coordinate. */
 uint8_t LCD_Readchar      ( uint8_t rc_x, uint8_t rc_y );
 #endif
 
-#if !defined(__CROSSWORKS_ARM) || !defined(__GNUC__)
-void LCD_Printf           ( uint8_t * string );
+/** Write a null-terminated string directly to the display. */
+void LCD_Puts             ( const char * string );
+
+#ifdef LCD_PRINTF_SUPPORT
+/** Format a message and write it to the display.
+  *
+  * Output is limited by LCD_PRINTF_BUFFER_SIZE.
+  */
+int LCD_Printf            ( const char * format, ... );
 #endif
+
+/** Clear the display and return the cursor to the home position. */
 void LCD_Clear            ( void );
 
 #ifdef LCD_UDG_SUPPORT
+/** Define one user character in CGRAM from an 8-byte bitmap. */
 void LCD_Defchar          ( uint16_t ChToSet, const uint8_t * ChDataset );
 #endif
 
 #ifdef LCD_SCROLL_SUPPORT
+/** Scroll the current display contents up by one line. */
 void LCD_ScrollUp         ( void );
 #endif
 
 // VFD Specific function for display intensity.
 //
 #ifdef HD_ISVFD
+/** Set the intensity level for supported VFD modules. */
 void LCD_VFD_Intensity    ( char intensity );
 #endif
 
